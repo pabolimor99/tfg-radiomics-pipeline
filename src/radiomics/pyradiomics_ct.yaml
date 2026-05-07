@@ -1,6 +1,4 @@
-setting:
-  # Discretization (HU) for texture features.
-  # Common defaults in CT radiomics are 25 HU or 10 HU; start with 25 for stability.
+setting:  
   binWidth: 25
   normalize: false
   removeOutliers: null

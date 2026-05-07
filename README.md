@@ -45,6 +45,34 @@ De forma general, el proyecto sigue esta idea:
 2. Reorganizarlos en `data/raw/` para facilitar su manejo.
 3. Procesarlos mediante los scripts y módulos del proyecto.
 
+## Validación: labels de máscaras vs CSV de metadatos
+
+Para comprobar que los `lesion_id` del CSV de metadatos coinciden con los valores (labels) presentes en las máscaras `.nii.gz`, puedes generar un reporte con:
+
+```bash
+.\.venv\Scripts\python.exe scripts\validate_mask_labels_vs_metadata.py
+```
+
+Esto crea `outputs/logs/label_metadata_correspondence.csv` con, para cada `uid` y `timepoint` (baseline/followup), los labels esperados según el metadata (filtrando por `img_id_bl` / `img_id_fu`) y los labels realmente presentes en la máscara, incluyendo diferencias (`missing_in_mask`, `extra_in_mask`).
+
+## Convertir `longitudinal_features.csv` a formato largo
+
+El extractor de radiomics genera:
+- `outputs/features/longitudinal_features.csv` (formato ancho, con prefijos `baseline_` / `followup_`)
+- `outputs/features/longitudinal_features_long.csv` (formato largo, una fila por `uid` y `timepoint`)
+
+Si ya tienes el CSV ancho y quieres regenerar el formato largo (o aplicar filtros), ejecuta:
+
+```bash
+.\.venv\Scripts\python.exe scripts\longitudinal_features_to_long.py
+```
+
+Opcionalmente, para eliminar los casos con máscara vacía:
+
+```bash
+.\.venv\Scripts\python.exe scripts\longitudinal_features_to_long.py --drop-empty-masks
+```
+
 ## Notas
 
 Este repositorio está organizado con el objetivo de mantener una separación clara entre:
