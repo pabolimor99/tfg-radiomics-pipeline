@@ -78,7 +78,7 @@ def longitudinal_pairs_long_to_wide(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convierte longitudinal_pairs.csv canonical long al formato wide legacy del revisor visual.")
+    parser = argparse.ArgumentParser(description="Convierte longitudinal_pairs.csv canonical long al formato wide del revisor visual.")
     parser.add_argument("--input-csv", type=Path, default=DEFAULT_INPUT_CSV)
     parser.add_argument("--output-csv", type=Path, default=DEFAULT_OUTPUT_CSV)
     args = parser.parse_args()

@@ -1,27 +1,21 @@
 __pycache__/
 *.py[cod]
-*.pyd
-.Python
-*.egg-info/
-build/
-dist/
+
+.venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-.venv/
-venv/
-env/
-
 .ipynb_checkpoints/
 
-.DS_Store
-Thumbs.db
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 
-data/
-outputs/
+# Dataset original y reorganizado
+data/base/
+data/raw/
 
-!outputs/review/
-!outputs/review/classification_outcomes.csv
+# Artefactos pesados generados
+outputs/models/
+outputs-base/models/

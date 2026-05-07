@@ -1,84 +1,114 @@
 # TFG Radiomics
 
-Este repositorio contiene el código y la organización de datos utilizados para el desarrollo del TFG, centrado en el análisis de imágenes médicas longitudinales y la extracción de características radiómicas.
+Repositorio para el procesamiento longitudinal de imagen médica, extracción de radiomics y entrenamiento de un MLP sobre variables de cambio longitudinal.
 
-## Estructura general del proyecto
+## Estructura
 
 ```text
 .
 ├── data/
 │   ├── base/
 │   └── raw/
-├── src/
-├── scripts/
 ├── outputs/
+├── scripts/
+├── src/
 ├── requirements.txt
 └── README.md
-
 ```
 
-## Descripción de carpetas
+## Capas del pipeline
 
-### `data/`
-Contiene los datos del proyecto.
+### Datos base
 
-- **`data/base/`**  
-  Incluye los datos originales del dataset, tal y como se descargaron inicialmente.
+- `src/data/ingest/`: reorganización física del dataset en `data/raw`
+- `src/data/indexing/`: indexado y validación tabular
+- `src/preprocessing/build_longitudinal_pairs.py`: construcción de pares longitudinales en formato `long`
 
-- **`data/raw/`**  
-  Contiene una reorganización inicial de los datos originales, con una estructura más cómoda para trabajar durante el desarrollo del pipeline.
+Artefactos principales:
 
-### `src/`
-Incluye la lógica principal del proyecto. Aquí se definen las funciones y módulos reutilizables para tareas como carga de datos, validación, preprocesado y extracción de características.
+- `outputs/indexing/index.csv`
+- `outputs/indexing/validated_index.csv`
+- `outputs/pairs/longitudinal_pairs.csv`
 
-### `scripts/`
-Contiene los scripts ejecutables del proyecto. Estos scripts utilizan las funciones definidas en `src/` para realizar tareas concretas, como reorganizar datos, generar tablas auxiliares o lanzar la extracción de radiomics
+### Radiomics base
 
-### `outputs/`
-Almacena los resultados generados durante la ejecución del proyecto, como tablas de características, logs, figuras o salidas intermedias.
+- `src/radiomics/extract_features.py`
 
-## Flujo general de trabajo
+Artefacto principal:
 
-De forma general, el proyecto sigue esta idea:
+- `outputs/features/longitudinal_features_long.csv`
 
-1. Partir de los datos originales almacenados en `data/base/`.
-2. Reorganizarlos en `data/raw/` para facilitar su manejo.
-3. Procesarlos mediante los scripts y módulos del proyecto.
+### Features para modelado
 
-## Validación: labels de máscaras vs CSV de metadatos
+- `scripts/prepare_modeling_features.py`: prepara la capa de features de modelado
+- `scripts/features/prepare_features_uid.py`: construye una matriz por par longitudinal
+- `scripts/features/prepare_delta_features.py`: calcula `delta_features_uid.csv`
 
-Para comprobar que los `lesion_id` del CSV de metadatos coinciden con los valores (labels) presentes en las máscaras `.nii.gz`, puedes generar un reporte con:
+Artefactos principales:
 
-```bash
-.\.venv\Scripts\python.exe scripts\validate_mask_labels_vs_metadata.py
+- `outputs/features/features_uid.csv`
+- `outputs/features/delta_features_uid.csv`
+
+### Estabilidad radiomics
+
+- `scripts/export_icc_subset.py`: exporta el subset fijo de baseline usado para ICC
+- `src/radiomics/icc.py`: calcula ICC y filtra features robustas
+
+Artefactos principales:
+
+- `outputs/features/icc_subset_keys.csv`
+- `outputs/features/icc_results.csv`
+- `outputs/features/icc_features_keep.csv`
+- `outputs/features/icc_features_discard.csv`
+
+### Entrenamiento
+
+- `scripts/train_mlp.py`
+
+Entradas:
+
+- `outputs/features/delta_features_uid.csv`
+- `outputs/features/icc_features_keep.csv`
+- `outputs/review/classification_outcomes.csv`
+
+Salidas:
+
+- `outputs/models/mlp/<timestamp>/model.joblib`
+- `outputs/models/mlp/<timestamp>/metrics.json`
+- `outputs/models/mlp/<timestamp>/train_uids.csv`
+- `outputs/models/mlp/<timestamp>/test_uids.csv`
+
+## Ejecución
+
+Pipeline completo:
+
+```powershell
+python scripts/run_full_pipeline.py
 ```
 
-Esto crea `outputs/logs/label_metadata_correspondence.csv` con, para cada `uid` y `timepoint` (baseline/followup), los labels esperados según el metadata (filtrando por `img_id_bl` / `img_id_fu`) y los labels realmente presentes en la máscara, incluyendo diferencias (`missing_in_mask`, `extra_in_mask`).
+Opciones útiles:
 
-## Convertir `longitudinal_features.csv` a formato largo
-
-El extractor de radiomics genera:
-- `outputs/features/longitudinal_features.csv` (formato ancho, con prefijos `baseline_` / `followup_`)
-- `outputs/features/longitudinal_features_long.csv` (formato largo, una fila por `uid` y `timepoint`)
-
-Si ya tienes el CSV ancho y quieres regenerar el formato largo (o aplicar filtros), ejecuta:
-
-```bash
-.\.venv\Scripts\python.exe scripts\longitudinal_features_to_long.py
+```powershell
+python scripts/run_full_pipeline.py --skip-data
+python scripts/run_full_pipeline.py --skip-icc
+python scripts/run_full_pipeline.py --generate-review-wide
 ```
 
-Opcionalmente, para eliminar los casos con máscara vacía:
+Ejecución manual por etapas:
 
-```bash
-.\.venv\Scripts\python.exe scripts\longitudinal_features_to_long.py --drop-empty-masks
+```powershell
+python scripts/export_icc_subset.py
+$env:ICC_REEXTRACT="1"
+python src/radiomics/icc.py
+python scripts/prepare_modeling_features.py
+python scripts/train_mlp.py
 ```
 
-## Notas
+## Representaciones usadas
 
-Este repositorio está organizado con el objetivo de mantener una separación clara entre:
-- los datos originales,
-- los datos reorganizados,
-- el código fuente,
-- y los resultados generados.
+El proyecto trabaja con dos vistas oficiales del mismo problema:
 
-Esto facilita la reproducibilidad y el mantenimiento del proyecto.
+- `long`: para pares longitudinales y radiomics por timepoint
+- `pairwise`: para modelado supervisado por par longitudinal
+
+Esto permite mantener un pipeline limpio para preparación y, a la vez, una capa específica para el entrenamiento del MLP.

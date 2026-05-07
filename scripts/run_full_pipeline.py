@@ -13,8 +13,11 @@ from reorganize import (
     REVIEW_WIDE_CSV,
     run_data_pipeline,
 )
-from prepare_delta_features import OUTPUT_CSV as DELTA_FEATURES_CSV
-from prepare_delta_features import build_delta_features
+from export_icc_subset import OUTPUT_CSV as ICC_SUBSET_CSV
+from export_icc_subset import export_icc_subset
+from prepare_modeling_features import DELTA_FEATURES_CSV
+from prepare_modeling_features import FEATURES_UID_CSV as PAIRWISE_FEATURES_CSV
+from prepare_modeling_features import prepare_modeling_features
 from train_mlp import (
     ICC_KEEP,
     KEEP_CSV,
@@ -31,9 +34,17 @@ def _ensure_exists(path: Path, description: str) -> None:
         raise FileNotFoundError(f"Falta {description}: {path}")
 
 
+def _ensure_icc_subset() -> None:
+    if ICC_SUBSET_CSV.is_file():
+        return
+    print("[pipeline] ICC subset not found, exporting fixed subset")
+    export_icc_subset()
+    _ensure_exists(ICC_SUBSET_CSV, "subset ICC")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Orquesta el pipeline completo: organizacion de datos, preprocessing, extraccion, review legacy, delta features, ICC y entrenamiento."
+        description="Orquesta el pipeline completo: organizacion de datos, radiomics en long, features por par, deltas, ICC y entrenamiento."
     )
     parser.add_argument(
         "--skip-data",
@@ -53,7 +64,7 @@ def main() -> None:
     parser.add_argument(
         "--generate-review-wide",
         action="store_true",
-        help="Genera el CSV wide legacy para revision visual.",
+        help="Genera el CSV wide de revision visual.",
     )
     args = parser.parse_args()
 
@@ -68,14 +79,16 @@ def main() -> None:
 
     _ensure_exists(LONGITUDINAL_FEATURES_LONG_CSV, "CSV de features longitudinales en long")
     if args.generate_review_wide:
-        _ensure_exists(REVIEW_WIDE_CSV, "CSV wide legacy para revision visual")
+        _ensure_exists(REVIEW_WIDE_CSV, "CSV wide para revision visual")
 
-    print("[pipeline] Step 2/4 delta features")
-    build_delta_features()
+    print("[pipeline] Step 2/4 modeling features")
+    prepare_modeling_features()
+    _ensure_exists(PAIRWISE_FEATURES_CSV, "CSV de features longitudinales por par")
     _ensure_exists(DELTA_FEATURES_CSV, "CSV de delta features")
 
     if ICC_KEEP and not args.skip_icc:
         print("[pipeline] Step 3/4 ICC")
+        _ensure_icc_subset()
         icc_data = load_data(ICC_INPUT_CSV)
         icc_results = measure_and_discard_features_by_icc(icc_data)
         save_data(icc_results, ICC_RESULTS_CSV)
@@ -86,6 +99,7 @@ def main() -> None:
     if args.skip_train:
         print("[pipeline] Step 4/4 train skipped")
         print(f"[pipeline] review csv: {REVIEW_WIDE_CSV}")
+        print(f"[pipeline] pairwise csv: {PAIRWISE_FEATURES_CSV}")
         print(f"[pipeline] delta csv: {DELTA_FEATURES_CSV}")
         return
 

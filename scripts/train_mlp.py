@@ -30,8 +30,8 @@ OUT_ROOT = Path("outputs/models/mlp")
 
 RANDOM_STATE = 42
 N_SPLITS = 5
-TEST_SIZE = 0.35
-ICC_MIN = 0.95
+TEST_SIZE = 0.2
+ICC_MIN = 0.7
 
 MLP_PARAMS = {
     "hidden_layer_sizes": (256, 128, 64, 32),
@@ -64,7 +64,7 @@ def train_model(
     before_f = len(features)
     before_o = len(outcomes)
     df = features.merge(outcomes, on="uid", how="inner")
-    df = df.sort_values(by="uid").reset_index(drop=True)
+    # df = df.sort_values(by="uid").reset_index(drop=True)
 
     if df.empty:
         raise ValueError("Merge vacio (no hay uids en comun).")
