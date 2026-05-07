@@ -4,7 +4,7 @@ import slicer
 import qt
 
 PROJECT_ROOT = r"C:\Users\PabolimorWS\Desktop\TFG"
-CSV_PATH = os.path.join(PROJECT_ROOT, "outputs", "pairs", "longitudinal_pairs.csv")
+CSV_PATH = os.path.join(PROJECT_ROOT, "outputs", "review", "longitudinal_pairs_review_wide.csv")
 
 OUTCOME_CSV = os.path.join(PROJECT_ROOT, "outputs", "review", "classification_outcomes.csv")
 

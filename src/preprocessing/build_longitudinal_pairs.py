@@ -1,7 +1,7 @@
 from pathlib import Path
-import pandas as pd
 import logging
-from tqdm import tqdm
+
+import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -9,7 +9,15 @@ INPUT_CSV = Path("data/validated_index.csv")
 LONGITUDINAL_PAIRS_CSV = Path("data/longitudinal_pairs.csv")
 
 REQUIRE_RADIOMICS_VALID = True
-REQUIRE_COMPLETE_PAIR = True
+
+
+def _build_pair_uid(patient_id: str, pair_index: int) -> str:
+    return f"{patient_id}__bl{pair_index}__fu{pair_index}"
+
+
+def _build_row_uid(pair_uid: str, timepoint: str) -> str:
+    suffix = "bl" if str(timepoint) == "baseline" else "fu"
+    return f"{pair_uid}__{suffix}"
 
 
 def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
@@ -23,6 +31,7 @@ def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
         "mask_path",
         "is_structurally_valid",
         "is_radiomics_valid",
+        "invalid_reason",
     }
     missing = required_cols - set(df.columns)
     if missing:
@@ -33,73 +42,47 @@ def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
     else:
         df = df[df["is_structurally_valid"] == True].copy()
 
-    rows = []
+    df["pair_index"] = pd.to_numeric(df["pair_index"], errors="raise").astype(int)
+    df["timepoint"] = df["timepoint"].astype(str).str.lower()
 
-    for patient_id, patient_df in tqdm(
-        df.groupby("patient_id"),
-        desc="Construyendo pares longitudinales"
-    ):
-        baseline_df = patient_df[patient_df["timepoint"] == "baseline"].copy()
-        followup_df = patient_df[patient_df["timepoint"] == "followup"].copy()
+    timepoint_counts = (
+        df.groupby(["patient_id", "pair_index"])["timepoint"]
+        .nunique()
+        .reset_index(name="n_timepoints")
+    )
+    valid_pairs = timepoint_counts[timepoint_counts["n_timepoints"] == 2][["patient_id", "pair_index"]]
 
-        if baseline_df.empty or followup_df.empty:
-            continue
+    result_df = df.merge(valid_pairs, on=["patient_id", "pair_index"], how="inner").copy()
+    result_df["pair_uid"] = result_df.apply(
+        lambda row: _build_pair_uid(str(row["patient_id"]), int(row["pair_index"])),
+        axis=1,
+    )
+    result_df["uid"] = result_df.apply(
+        lambda row: _build_row_uid(str(row["pair_uid"]), str(row["timepoint"])),
+        axis=1,
+    )
 
-        baseline_by_idx = {}
-        for _, row in baseline_df.iterrows():
-            idx = int(row["pair_index"])
-            baseline_by_idx[idx] = row
-
-        followup_by_idx = {}
-        for _, row in followup_df.iterrows():
-            idx = int(row["pair_index"])
-            followup_by_idx[idx] = row
-
-        common_indexes = sorted(set(baseline_by_idx.keys()) & set(followup_by_idx.keys()))
-
-        for pair_index in common_indexes:
-            bl_row = baseline_by_idx[pair_index]
-            fu_row = followup_by_idx[pair_index]
-
-            baseline_image_path = bl_row["image_path"]
-            baseline_mask_path = bl_row["mask_path"]
-            followup_image_path = fu_row["image_path"]
-            followup_mask_path = fu_row["mask_path"]
-
-            if REQUIRE_COMPLETE_PAIR:
-                if pd.isna(baseline_image_path) or pd.isna(baseline_mask_path):
-                    continue
-                if pd.isna(followup_image_path) or pd.isna(followup_mask_path):
-                    continue
-
-            rows.append({
-                "uid": f"{patient_id}__bl{pair_index}__fu{pair_index}",
-                "patient_id": patient_id,
-                "pair_index": pair_index,
-                "baseline_pair_index": int(bl_row["pair_index"]),
-                "followup_pair_index": int(fu_row["pair_index"]),
-                "baseline_image_path": bl_row["image_path"],
-                "baseline_mask_path": bl_row["mask_path"],
-                "followup_image_path": fu_row["image_path"],
-                "followup_mask_path": fu_row["mask_path"],
-                "baseline_is_structurally_valid": bl_row["is_structurally_valid"],
-                "baseline_is_radiomics_valid": bl_row["is_radiomics_valid"],
-                "followup_is_structurally_valid": fu_row["is_structurally_valid"],
-                "followup_is_radiomics_valid": fu_row["is_radiomics_valid"],
-            })
-
-    result_df = pd.DataFrame(rows)
-
-    if not result_df.empty:
-        result_df = result_df.sort_values(
-            by=["patient_id", "pair_index"]
-        ).reset_index(drop=True)
+    result_df = result_df[
+        [
+            "pair_uid",
+            "uid",
+            "patient_id",
+            "pair_index",
+            "timepoint",
+            "image_path",
+            "mask_path",
+            "is_structurally_valid",
+            "is_radiomics_valid",
+            "invalid_reason",
+        ]
+    ].sort_values(by=["patient_id", "pair_index", "timepoint"]).reset_index(drop=True)
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     result_df.to_csv(output_csv, index=False)
 
     logging.info("Longitudinal pairs guardado en %s", output_csv)
-    logging.info("Número de pares longitudinales: %d", len(result_df))
+    logging.info("Numero de filas en formato long: %d", len(result_df))
+    logging.info("Numero de pares longitudinales: %d", int(result_df["pair_uid"].nunique()))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ logging.getLogger("pykwalify.core").setLevel(logging.ERROR)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "pairs_long.csv"
+INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "longitudinal_pairs.csv"
 OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_results.csv"
 FEATURES_KEEP_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_keep.csv"
 FEATURES_DISCARD_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_discard.csv"

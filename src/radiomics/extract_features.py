@@ -17,10 +17,8 @@ logging.getLogger("radiomics").setLevel(logging.ERROR)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-PAIRS_CSV = PROJECT_ROOT / "outputs" / "pairs" / "pairs.csv"
-LONGITUDINAL_PAIRS_CSV = PROJECT_ROOT / "outputs" / "pairs" / "longitudinal_pairs.csv"
-INPUT_CSV = PAIRS_CSV
-OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "longitudinal_features.csv"
+INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "longitudinal_pairs.csv"
+OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "longitudinal_features_long.csv"
 ERRORS_CSV = PROJECT_ROOT / "outputs" / "logs" / "longitudinal_features_errors.csv"
 PYRADIOMICS_PARAMS = Path(__file__).resolve().parent / "pyradiomics_ct.yaml"
 
@@ -43,7 +41,7 @@ def resolve_path(path_str: str) -> Path | None:
 
 def build_extractor():
     if not PYRADIOMICS_PARAMS.is_file():
-        raise FileNotFoundError(f"No se encontró el fichero de parámetros de PyRadiomics: {PYRADIOMICS_PARAMS}")
+        raise FileNotFoundError(f"No se encontro el fichero de parametros de PyRadiomics: {PYRADIOMICS_PARAMS}")
     return featureextractor.RadiomicsFeatureExtractor(str(PYRADIOMICS_PARAMS))
 
 
@@ -75,26 +73,23 @@ def extract_single_timepoint_features(
     extractor,
     image_path: Path,
     mask_path: Path,
-    prefix: str,
 ) -> dict:
     if image_path is None or not image_path.exists():
         raise FileNotFoundError(f"Imagen no encontrada: {image_path}")
 
     if mask_path is None or not mask_path.exists():
-        raise FileNotFoundError(f"Máscara no encontrada: {mask_path}")
+        raise FileNotFoundError(f"Mascara no encontrada: {mask_path}")
 
     if mask_is_empty(mask_path):
-        return {f"{prefix}_mask_empty": 1}
+        return {"mask_empty": 1}
 
     binary_mask = build_binary_mask(mask_path)
     result = extractor.execute(str(image_path), binary_mask)
     result = clean_result(result)
 
-    prefixed_result = {f"{prefix}_mask_empty": 0}
-    for key, value in result.items():
-        prefixed_result[f"{prefix}_{key}"] = value
-
-    return prefixed_result
+    output = {"mask_empty": 0}
+    output.update(result)
+    return output
 
 
 def _init_worker(params_path: str, include_diagnostics: bool) -> None:
@@ -105,43 +100,31 @@ def _init_worker(params_path: str, include_diagnostics: bool) -> None:
 
 
 def _extract_for_row(row: dict, extractor) -> tuple[dict | None, dict | None]:
-    uid = row["uid"]
-    patient_id = row["patient_id"]
-
-    baseline_image_path = resolve_path(row["baseline_image_path"])
-    baseline_mask_path = resolve_path(row["baseline_mask_path"])
-    followup_image_path = resolve_path(row["followup_image_path"])
-    followup_mask_path = resolve_path(row["followup_mask_path"])
+    image_path = resolve_path(row["image_path"])
+    mask_path = resolve_path(row["mask_path"])
 
     row_content = {
-        "uid": uid,
-        "patient_id": patient_id,
-        "baseline_pair_index": row["baseline_pair_index"],
-        "followup_pair_index": row["followup_pair_index"],
-        "baseline_image_path": baseline_image_path,
-        "baseline_mask_path": baseline_mask_path,
-        "followup_image_path": followup_image_path,
-        "followup_mask_path": followup_mask_path,
+        "pair_uid": row["pair_uid"],
+        "uid": row["uid"],
+        "patient_id": row["patient_id"],
+        "pair_index": row["pair_index"],
+        "timepoint": row["timepoint"],
+        "image_path": image_path,
+        "mask_path": mask_path,
     }
+    for optional_col in ("is_structurally_valid", "is_radiomics_valid", "invalid_reason"):
+        if optional_col in row:
+            row_content[optional_col] = row[optional_col]
 
     try:
-        baseline_features = extract_single_timepoint_features(
+        features = extract_single_timepoint_features(
             extractor=extractor,
-            image_path=baseline_image_path,
-            mask_path=baseline_mask_path,
-            prefix="baseline",
-        )
-
-        followup_features = extract_single_timepoint_features(
-            extractor=extractor,
-            image_path=followup_image_path,
-            mask_path=followup_mask_path,
-            prefix="followup",
+            image_path=image_path,
+            mask_path=mask_path,
         )
 
         output_row = dict(row_content)
-        output_row.update(baseline_features)
-        output_row.update(followup_features)
+        output_row.update(features)
         return output_row, None
 
     except Exception as e:
@@ -172,14 +155,13 @@ def extract_features(
     df = pd.read_csv(input_csv)
 
     required_cols = {
+        "pair_uid",
         "uid",
         "patient_id",
-        "baseline_pair_index",
-        "followup_pair_index",
-        "baseline_image_path",
-        "baseline_mask_path",
-        "followup_image_path",
-        "followup_mask_path",
+        "pair_index",
+        "timepoint",
+        "image_path",
+        "mask_path",
     }
     missing = required_cols - set(df.columns)
     if missing:
@@ -189,7 +171,7 @@ def extract_features(
     errors: list[dict] = []
 
     total = len(df)
-    logging.info("Extrayendo características longitudinales para %d casos", total)
+    logging.info("Extrayendo caracteristicas longitudinales en formato long para %d filas", total)
 
     workers = int(workers) if workers is not None else 0
     if workers <= 1:
@@ -222,28 +204,29 @@ def extract_features(
 
     if rows:
         features_df = pd.DataFrame(rows)
+        features_df = features_df.sort_values(by=["patient_id", "pair_index", "timepoint"]).reset_index(drop=True)
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         features_df.to_csv(output_csv, index=False)
 
-        logging.info("Características guardadas en %s", output_csv)
-        logging.info("Total de casos procesados correctamente: %d", len(rows))
-        logging.info("Número de columnas: %d", len(features_df.columns))
+        logging.info("Caracteristicas guardadas en %s", output_csv)
+        logging.info("Total de filas procesadas correctamente: %d", len(rows))
+        logging.info("Numero de columnas: %d", len(features_df.columns))
     else:
-        logging.warning("No se extrajeron características de ningún caso longitudinal")
+        logging.warning("No se extrajeron caracteristicas de ninguna fila longitudinal")
 
     if errors:
         errors_df = pd.DataFrame(errors)
+        errors_df = errors_df.sort_values(by=["patient_id", "pair_index", "timepoint"]).reset_index(drop=True)
         errors_csv.parent.mkdir(parents=True, exist_ok=True)
         errors_df.to_csv(errors_csv, index=False)
         logging.info("Errores guardados en %s", errors_csv)
-        logging.info("Total de casos con error: %d", len(errors))
+        logging.info("Total de filas con error: %d", len(errors))
 
 
 if __name__ == "__main__":
     try:
-        input_csv = INPUT_CSV if INPUT_CSV.is_file() else LONGITUDINAL_PAIRS_CSV
         workers = int(os.environ.get("RADIOMICS_WORKERS", str(DEFAULT_WORKERS)))
-        extract_features(input_csv, OUTPUT_CSV, ERRORS_CSV, workers=workers)
+        extract_features(INPUT_CSV, OUTPUT_CSV, ERRORS_CSV, workers=workers)
     except Exception as e:
         logging.error("An error occurred: %s", e)
         sys.exit(1)
