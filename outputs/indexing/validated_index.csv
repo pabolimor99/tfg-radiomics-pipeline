@@ -256,7 +256,7 @@ patient_id,timepoint,pair_index,image_path,mask_path,is_structurally_valid,is_ra
 64b2c11867,followup,0,data\raw\64b2c11867\followup\images\64b2c11867_FU_img_FU_img_00.nii.gz,data\raw\64b2c11867\followup\masks\64b2c11867_FU_mask_FU_img_00.nii.gz,True,True,
 65b9eea6e1,baseline,0,data\raw\65b9eea6e1\baseline\images\65b9eea6e1_BL_img_BL_img_00.nii.gz,data\raw\65b9eea6e1\baseline\masks\65b9eea6e1_BL_mask_BL_img_00.nii.gz,True,True,
 65b9eea6e1,followup,0,data\raw\65b9eea6e1\followup\images\65b9eea6e1_FU_img_FU_img_00.nii.gz,data\raw\65b9eea6e1\followup\masks\65b9eea6e1_FU_mask_FU_img_00.nii.gz,True,True,
-65cfedc125,baseline,0,data\raw\65cfedc125\baseline\images\65cfedc125_BL_img_BL_img_00.nii.gz,data\raw\65cfedc125\baseline\masks\65cfedc125_BL_mask_BL_img_00.nii.gz,True,True,
+65cfedc125,baseline,0,data\raw\65cfedc125\baseline\images\65cfedc125_BL_img_BL_img_00.nii.gz,data\raw\65cfedc125\baseline\masks\65cfedc125_BL_mask_BL_img_00.nii.gz,True,False,manual
 65cfedc125,followup,0,data\raw\65cfedc125\followup\images\65cfedc125_FU_img_FU_img_00.nii.gz,data\raw\65cfedc125\followup\masks\65cfedc125_FU_mask_FU_img_00.nii.gz,True,True,
 65ded5353c,baseline,0,data\raw\65ded5353c\baseline\images\65ded5353c_BL_img_BL_img_00.nii.gz,data\raw\65ded5353c\baseline\masks\65ded5353c_BL_mask_BL_img_00.nii.gz,True,True,
 65ded5353c,followup,0,data\raw\65ded5353c\followup\images\65ded5353c_FU_img_FU_img_00.nii.gz,data\raw\65ded5353c\followup\masks\65ded5353c_FU_mask_FU_img_00.nii.gz,True,True,
@@ -391,10 +391,10 @@ patient_id,timepoint,pair_index,image_path,mask_path,is_structurally_valid,is_ra
 9188905e74,followup,0,data\raw\9188905e74\followup\images\9188905e74_FU_img_FU_img_00.nii.gz,data\raw\9188905e74\followup\masks\9188905e74_FU_mask_FU_img_00.nii.gz,True,True,
 9188905e74,followup,1,data\raw\9188905e74\followup\images\9188905e74_FU_img_FU_img_01.nii.gz,data\raw\9188905e74\followup\masks\9188905e74_FU_mask_FU_img_01.nii.gz,True,True,
 92c8c96e4c,baseline,0,data\raw\92c8c96e4c\baseline\images\92c8c96e4c_BL_img_BL_img_00.nii.gz,data\raw\92c8c96e4c\baseline\masks\92c8c96e4c_BL_mask_BL_img_00.nii.gz,True,True,
-92c8c96e4c,baseline,1,data\raw\92c8c96e4c\baseline\images\92c8c96e4c_BL_img_BL_img_01.nii.gz,data\raw\92c8c96e4c\baseline\masks\92c8c96e4c_BL_mask_BL_img_01.nii.gz,True,True,
+92c8c96e4c,baseline,1,data\raw\92c8c96e4c\baseline\images\92c8c96e4c_BL_img_BL_img_01.nii.gz,data\raw\92c8c96e4c\baseline\masks\92c8c96e4c_BL_mask_BL_img_01.nii.gz,True,False,manual
 92c8c96e4c,baseline,2,data\raw\92c8c96e4c\baseline\images\92c8c96e4c_BL_img_BL_img_02.nii.gz,data\raw\92c8c96e4c\baseline\masks\92c8c96e4c_BL_mask_BL_img_02.nii.gz,True,True,
 92c8c96e4c,followup,0,data\raw\92c8c96e4c\followup\images\92c8c96e4c_FU_img_FU_img_00.nii.gz,data\raw\92c8c96e4c\followup\masks\92c8c96e4c_FU_mask_FU_img_00.nii.gz,True,True,
-92c8c96e4c,followup,1,data\raw\92c8c96e4c\followup\images\92c8c96e4c_FU_img_FU_img_01.nii.gz,data\raw\92c8c96e4c\followup\masks\92c8c96e4c_FU_mask_FU_img_01.nii.gz,True,True,
+92c8c96e4c,followup,1,data\raw\92c8c96e4c\followup\images\92c8c96e4c_FU_img_FU_img_01.nii.gz,data\raw\92c8c96e4c\followup\masks\92c8c96e4c_FU_mask_FU_img_01.nii.gz,True,False,manual
 93dd4de5cd,baseline,0,data\raw\93dd4de5cd\baseline\images\93dd4de5cd_BL_img_BL_img_00.nii.gz,data\raw\93dd4de5cd\baseline\masks\93dd4de5cd_BL_mask_BL_img_00.nii.gz,True,True,
 93dd4de5cd,followup,0,data\raw\93dd4de5cd\followup\images\93dd4de5cd_FU_img_FU_img_00.nii.gz,data\raw\93dd4de5cd\followup\masks\93dd4de5cd_FU_mask_FU_img_00.nii.gz,True,True,
 94f6d7e04a,baseline,0,data\raw\94f6d7e04a\baseline\images\94f6d7e04a_BL_img_BL_img_00.nii.gz,data\raw\94f6d7e04a\baseline\masks\94f6d7e04a_BL_mask_BL_img_00.nii.gz,True,True,
@@ -537,7 +537,7 @@ c4de9fe968,followup,0,data\raw\c4de9fe968\followup\images\c4de9fe968_FU_img_FU_i
 c52f1bd66c,baseline,0,data\raw\c52f1bd66c\baseline\images\c52f1bd66c_BL_img_BL_img_00.nii.gz,data\raw\c52f1bd66c\baseline\masks\c52f1bd66c_BL_mask_BL_img_00.nii.gz,True,True,
 c52f1bd66c,followup,0,data\raw\c52f1bd66c\followup\images\c52f1bd66c_FU_img_FU_img_00.nii.gz,data\raw\c52f1bd66c\followup\masks\c52f1bd66c_FU_mask_FU_img_00.nii.gz,True,True,
 c6f057b865,baseline,0,data\raw\c6f057b865\baseline\images\c6f057b865_BL_img_BL_img_00.nii.gz,data\raw\c6f057b865\baseline\masks\c6f057b865_BL_mask_BL_img_00.nii.gz,True,True,
-c6f057b865,followup,0,data\raw\c6f057b865\followup\images\c6f057b865_FU_img_FU_img_00.nii.gz,data\raw\c6f057b865\followup\masks\c6f057b865_FU_mask_FU_img_00.nii.gz,True,True,
+c6f057b865,followup,0,data\raw\c6f057b865\followup\images\c6f057b865_FU_img_FU_img_00.nii.gz,data\raw\c6f057b865\followup\masks\c6f057b865_FU_mask_FU_img_00.nii.gz,True,False,manual
 c6f057b865,followup,1,data\raw\c6f057b865\followup\images\c6f057b865_FU_img_FU_img_01.nii.gz,data\raw\c6f057b865\followup\masks\c6f057b865_FU_mask_FU_img_01.nii.gz,True,False,empty_mask
 c8ffe9a587,baseline,0,data\raw\c8ffe9a587\baseline\images\c8ffe9a587_BL_img_BL_img_00.nii.gz,data\raw\c8ffe9a587\baseline\masks\c8ffe9a587_BL_mask_BL_img_00.nii.gz,True,True,
 c8ffe9a587,followup,0,data\raw\c8ffe9a587\followup\images\c8ffe9a587_FU_img_FU_img_00.nii.gz,data\raw\c8ffe9a587\followup\masks\c8ffe9a587_FU_mask_FU_img_00.nii.gz,True,True,

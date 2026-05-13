@@ -15,6 +15,7 @@ Thumbs.db
 # Dataset original y reorganizado
 data/base/
 data/raw/
+data/test/
 
 # Artefactos pesados generados
 outputs/models/

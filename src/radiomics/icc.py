@@ -17,16 +17,16 @@ logging.getLogger("pykwalify.core").setLevel(logging.ERROR)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "pairs_long.csv"
+INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "longitudinal_pairs.csv"
 OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_results.csv"
 FEATURES_KEEP_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_keep.csv"
 FEATURES_DISCARD_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_discard.csv"
 FEATURES_CACHE_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_perturbed_features.csv"
-ICC_SUBSET_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_subset_keys.csv"
 PYRADIOMICS_PARAMS = Path(__file__).resolve().parent / "pyradiomics_ct.yaml"
 
 ICC_THRESHOLD = 0.70
 DEFAULT_WORKERS = max(1, min(8, (os.cpu_count() or 4) - 1))
+ICC_SUBSET_SIZE = 150
 
 _WORKER_EXTRACTOR = None
 
@@ -97,58 +97,19 @@ def load_data(input_csv):
     return pd.read_csv(input_csv)
 
 
-def load_fixed_subset_keys(subset_csv):
-    subset_df = pd.read_csv(subset_csv)
-    required = {"patient_id", "pair_index", "timepoint"}
-    missing = required - set(subset_df.columns)
-    if missing:
-        raise ValueError(
-            f"El subset ICC {subset_csv} no contiene columnas obligatorias: {sorted(missing)}"
-        )
-
-    subset_df = subset_df.loc[:, ["patient_id", "pair_index", "timepoint"]].copy()
-    subset_df["patient_id"] = subset_df["patient_id"].astype(str)
-    subset_df["pair_index"] = pd.to_numeric(subset_df["pair_index"], errors="raise").astype(int)
-    subset_df["timepoint"] = subset_df["timepoint"].astype(str)
-    subset_df = subset_df.drop_duplicates().reset_index(drop=True)
-    subset_df["_subset_order"] = np.arange(len(subset_df))
-    return subset_df
-
-
 def extract_baseline_subset(data):
-    if not ICC_SUBSET_CSV.is_file():
-        raise FileNotFoundError(
-            f"No se ha encontrado el subset ICC en {ICC_SUBSET_CSV}. "
-            "Generalo antes con scripts/export_icc_subset.py."
-        )
-
     rows = data[(data["timepoint"] == "baseline") & (data["is_radiomics_valid"] == True)].copy()
     rows["patient_id"] = rows["patient_id"].astype(str)
     rows["pair_index"] = pd.to_numeric(rows["pair_index"], errors="raise").astype(int)
     rows["timepoint"] = rows["timepoint"].astype(str)
-
-    subset = load_fixed_subset_keys(ICC_SUBSET_CSV)
-    merged = subset.merge(
-        rows,
-        on=["patient_id", "pair_index", "timepoint"],
-        how="left",
-        validate="one_to_one",
-    )
-
-    missing = merged["uid"].isna().sum()
-    if missing:
-        raise ValueError(
-            f"El subset ICC no se ha podido aplicar completamente: faltan {int(missing)} filas "
-            f"al cruzarlo con {INPUT_CSV}."
-        )
-
-    merged = merged.sort_values("_subset_order").reset_index(drop=True)
+    rows = rows.sort_values(by=["patient_id", "pair_index", "uid"]).reset_index(drop=True)
+    rows = rows.head(int(ICC_SUBSET_SIZE)).reset_index(drop=True)
     logging.info(
-        "Usando subset ICC desde %s: %d sujetos baseline",
-        ICC_SUBSET_CSV,
-        int(len(merged)),
+        "Usando subset dinamico de baseline radiomics-valid para ICC: %d sujetos (limite=%d)",
+        int(len(rows)),
+        int(ICC_SUBSET_SIZE),
     )
-    return merged.drop(columns=["_subset_order"])
+    return rows
 
 
 def generate_permutations(subset):

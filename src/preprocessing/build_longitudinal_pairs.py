@@ -20,6 +20,38 @@ def _build_row_uid(pair_uid: str, timepoint: str) -> str:
     return f"{pair_uid}__{suffix}"
 
 
+def _select_longitudinal_rows(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["pair_index"] = pd.to_numeric(df["pair_index"], errors="raise").astype(int)
+    df["timepoint"] = df["timepoint"].astype(str).str.lower()
+
+    baseline = df[df["timepoint"] == "baseline"].copy()
+    followup = df[df["timepoint"] == "followup"].copy()
+
+    if REQUIRE_RADIOMICS_VALID:
+        baseline = baseline[baseline["is_radiomics_valid"] == True].copy()
+    else:
+        baseline = baseline[baseline["is_structurally_valid"] == True].copy()
+
+    # Conserva followups estructuralmente correctos aunque no sean radiomics-valid
+    # para mantener el universo longitudinal cuando la mascara del FU es vacia.
+    followup = followup[followup["is_structurally_valid"] == True].copy()
+
+    valid_pairs = baseline[["patient_id", "pair_index"]].drop_duplicates()
+    followup = followup.merge(valid_pairs, on=["patient_id", "pair_index"], how="inner")
+    baseline = baseline.merge(valid_pairs, on=["patient_id", "pair_index"], how="inner")
+
+    result_df = pd.concat([baseline, followup], ignore_index=True)
+
+    timepoint_counts = (
+        result_df.groupby(["patient_id", "pair_index"])["timepoint"]
+        .nunique()
+        .reset_index(name="n_timepoints")
+    )
+    valid_pairs = timepoint_counts[timepoint_counts["n_timepoints"] == 2][["patient_id", "pair_index"]]
+    return result_df.merge(valid_pairs, on=["patient_id", "pair_index"], how="inner").copy()
+
+
 def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
     df = pd.read_csv(input_csv)
 
@@ -37,22 +69,7 @@ def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
     if missing:
         raise ValueError(f"Faltan columnas: {missing}")
 
-    if REQUIRE_RADIOMICS_VALID:
-        df = df[df["is_radiomics_valid"] == True].copy()
-    else:
-        df = df[df["is_structurally_valid"] == True].copy()
-
-    df["pair_index"] = pd.to_numeric(df["pair_index"], errors="raise").astype(int)
-    df["timepoint"] = df["timepoint"].astype(str).str.lower()
-
-    timepoint_counts = (
-        df.groupby(["patient_id", "pair_index"])["timepoint"]
-        .nunique()
-        .reset_index(name="n_timepoints")
-    )
-    valid_pairs = timepoint_counts[timepoint_counts["n_timepoints"] == 2][["patient_id", "pair_index"]]
-
-    result_df = df.merge(valid_pairs, on=["patient_id", "pair_index"], how="inner").copy()
+    result_df = _select_longitudinal_rows(df)
     result_df["pair_uid"] = result_df.apply(
         lambda row: _build_pair_uid(str(row["patient_id"]), int(row["pair_index"])),
         axis=1,

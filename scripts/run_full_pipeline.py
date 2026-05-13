@@ -13,8 +13,6 @@ from reorganize import (
     REVIEW_WIDE_CSV,
     run_data_pipeline,
 )
-from export_icc_subset import OUTPUT_CSV as ICC_SUBSET_CSV
-from export_icc_subset import export_icc_subset
 from prepare_modeling_features import DELTA_FEATURES_CSV
 from prepare_modeling_features import FEATURES_UID_CSV as PAIRWISE_FEATURES_CSV
 from prepare_modeling_features import prepare_modeling_features
@@ -32,14 +30,6 @@ from src.radiomics.icc import load_data, measure_and_discard_features_by_icc, sa
 def _ensure_exists(path: Path, description: str) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"Falta {description}: {path}")
-
-
-def _ensure_icc_subset() -> None:
-    if ICC_SUBSET_CSV.is_file():
-        return
-    print("[pipeline] ICC subset not found, exporting fixed subset")
-    export_icc_subset()
-    _ensure_exists(ICC_SUBSET_CSV, "subset ICC")
 
 
 def main() -> None:
@@ -88,7 +78,6 @@ def main() -> None:
 
     if ICC_KEEP and not args.skip_icc:
         print("[pipeline] Step 3/4 ICC")
-        _ensure_icc_subset()
         icc_data = load_data(ICC_INPUT_CSV)
         icc_results = measure_and_discard_features_by_icc(icc_data)
         save_data(icc_results, ICC_RESULTS_CSV)
