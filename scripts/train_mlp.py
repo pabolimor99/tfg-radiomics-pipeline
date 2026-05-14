@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +24,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 FEATURES_CSV = Path("outputs/features/delta_features_uid.csv")
 OUTCOMES_CSV = Path("outputs/review/classification_outcomes.csv")
-ICC_KEEP = True
+ICC_KEEP = False
 KEEP_CSV = Path("outputs/features/icc_features_keep.csv")
 OUT_ROOT = Path("outputs/models/mlp")
 
@@ -31,7 +32,7 @@ RANDOM_STATE = 42
 N_SPLITS = 5
 N_HOLDOUT_SPLITS = 5
 TEST_SIZE = 0.2
-ICC_MIN = 0.9
+ICC_MIN = 0.7
 THRESHOLD_SELECTION_METRIC = "balanced_accuracy"
 
 MLP_PARAMS = {
@@ -43,6 +44,10 @@ MLP_PARAMS = {
     "random_state": RANDOM_STATE,
     "verbose": False,
 }
+
+
+def _save_json(path: Path, payload: dict) -> None:
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _build_pipeline() -> Pipeline:
@@ -122,6 +127,7 @@ def train_model(
     keep_csv: Path = KEEP_CSV,
     out_root: Path = OUT_ROOT,
 ) -> Path:
+    random.seed(RANDOM_STATE)
     np.random.seed(RANDOM_STATE)
 
     features = pd.read_csv(features_csv)
@@ -174,6 +180,8 @@ def train_model(
     for split_idx, (train_idx, test_idx) in enumerate(splitter.split(X, y)):
         X_train, y_train = X[train_idx], y[train_idx]
         X_test, y_test = X[test_idx], y[test_idx]
+        train_uids = uids.iloc[train_idx].reset_index(drop=True)
+        test_uids = uids.iloc[test_idx].reset_index(drop=True)
 
         pipe = _build_pipeline()
         scores = cross_validate(
@@ -231,7 +239,8 @@ def train_model(
     threshold_mean = float(np.nanmean([row["threshold"] for row in threshold_rows]))
     threshold_std = float(np.nanstd([row["threshold"] for row in threshold_rows]))
 
-    final_pipe = _build_pipeline().fit(X, y)
+    final_pipe = _build_pipeline()
+    final_pipe.fit(X, y)
 
     run_dir = out_root / datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -318,7 +327,7 @@ def train_model(
         "holdout_summaries": split_summaries,
         "timestamp": datetime.now().isoformat(),
     }
-    (run_dir / "metrics.json").write_text(json.dumps(metrics_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    _save_json(run_dir / "metrics.json", metrics_payload)
 
     print(
         f"[train_mlp] rows={len(df)} features={len(feature_cols)} "

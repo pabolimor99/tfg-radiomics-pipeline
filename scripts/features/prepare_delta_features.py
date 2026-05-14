@@ -17,8 +17,8 @@ def build_delta_features(
     if "uid" not in df.columns:
         raise ValueError(f"Missing 'uid' column in {input_csv}")
 
-    baseline_cols = [c for c in df.columns if str(c).startswith("baseline_original_")]
-    followup_cols = {c for c in df.columns if str(c).startswith("followup_original_")}
+    baseline_cols = [c for c in df.columns if str(c).startswith("baseline_")]
+    followup_cols = {c for c in df.columns if str(c).startswith("followup_")}
 
     bases: list[str] = []
     for bl in baseline_cols:

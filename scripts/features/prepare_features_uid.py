@@ -6,6 +6,14 @@ import pandas as pd
 
 INPUT_CSV = Path("outputs/features/longitudinal_features_long.csv")
 OUTPUT_CSV = Path("outputs/features/features_uid.csv")
+FEATURE_PREFIXES = ("original_", "log-sigma-")
+
+
+def _is_modeling_feature(column: str) -> bool:
+    column = str(column)
+    return column.startswith(FEATURE_PREFIXES) or (
+        column.startswith("wavelet-") and "_firstorder_" in column
+    )
 
 
 def build_features_uid(
@@ -19,7 +27,7 @@ def build_features_uid(
     if missing:
         raise ValueError(f"Faltan columnas obligatorias en {input_csv}: {sorted(missing)}")
 
-    feature_cols = [c for c in df.columns if str(c).startswith("original_")]
+    feature_cols = [c for c in df.columns if _is_modeling_feature(c)]
     if not feature_cols:
         raise ValueError(f"No se han encontrado columnas de features radiomics en {input_csv}")
 

@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -22,13 +23,23 @@ OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_results.csv"
 FEATURES_KEEP_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_keep.csv"
 FEATURES_DISCARD_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_discard.csv"
 FEATURES_CACHE_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_perturbed_features.csv"
+FEATURES_PROGRESS_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_perturbed_features.partial.csv"
 PYRADIOMICS_PARAMS = Path(__file__).resolve().parent / "pyradiomics_ct.yaml"
 
 ICC_THRESHOLD = 0.70
-DEFAULT_WORKERS = max(1, min(8, (os.cpu_count() or 4) - 1))
-ICC_SUBSET_SIZE = 150
+DEFAULT_WORKERS = max(1, min(4, (os.cpu_count() or 4) - 1))
+ICC_SUBSET_SIZE = int(os.environ.get("ICC_SUBSET_SIZE", "150"))
+MAX_PENDING_FACTOR = 2
+CHECKPOINT_EVERY = int(os.environ.get("ICC_CHECKPOINT_EVERY", "25"))
 
-_WORKER_EXTRACTOR = None
+_WORKER_EXTRACTORS = None
+
+
+def is_allowed_feature(key: str) -> bool:
+    key = str(key)
+    return key.startswith(("original_", "log-sigma-")) or (
+        key.startswith("wavelet-") and "_firstorder_" in key
+    )
 
 
 def resolve_path(path_str):
@@ -95,6 +106,25 @@ def dilate_mask(mask_img, radius=1):
 
 def load_data(input_csv):
     return pd.read_csv(input_csv)
+
+
+def build_extractor(*, wavelet_firstorder: bool = False):
+    if Path(PYRADIOMICS_PARAMS).is_file():
+        extractor = featureextractor.RadiomicsFeatureExtractor(str(PYRADIOMICS_PARAMS))
+    else:
+        extractor = featureextractor.RadiomicsFeatureExtractor()
+    if wavelet_firstorder:
+        extractor.disableAllImageTypes()
+        extractor.enableImageTypeByName("Wavelet")
+        extractor.disableAllFeatures()
+        extractor.enableFeatureClassByName("firstorder")
+    else:
+        extractor.enableImageTypeByName("Wavelet", enabled=False)
+    return extractor
+
+
+def build_extractors():
+    return (build_extractor(), build_extractor(wavelet_firstorder=True))
 
 
 def extract_baseline_subset(data):
@@ -165,16 +195,14 @@ def generate_permutations(subset):
 
 
 def _init_worker(params_path: str) -> None:
-    global _WORKER_EXTRACTOR
-    if Path(params_path).is_file():
-        _WORKER_EXTRACTOR = featureextractor.RadiomicsFeatureExtractor(params_path)
-    else:
-        _WORKER_EXTRACTOR = featureextractor.RadiomicsFeatureExtractor()
+    global _WORKER_EXTRACTORS, PYRADIOMICS_PARAMS
+    PYRADIOMICS_PARAMS = Path(params_path)
+    _WORKER_EXTRACTORS = build_extractors()
 
 
 def _extract_one(recipe: dict):
-    global _WORKER_EXTRACTOR
-    if _WORKER_EXTRACTOR is None:
+    global _WORKER_EXTRACTORS
+    if _WORKER_EXTRACTORS is None:
         _init_worker(str(PYRADIOMICS_PARAMS))
 
     uid = recipe["uid"]
@@ -182,7 +210,6 @@ def _extract_one(recipe: dict):
     image_path = Path(recipe["image_path"])
     mask_path = Path(recipe["mask_path"])
 
-    image_img = sitk.ReadImage(str(image_path))
     mask0 = binary_mask(mask_path)
     if mask_is_empty(mask0):
         return None
@@ -209,21 +236,74 @@ def _extract_one(recipe: dict):
     if any(int(s) < 2 for s in mask_img.GetSize()):
         return None
 
-    features = _WORKER_EXTRACTOR.execute(image_img, mask_img)
-    clean = {k: v for k, v in features.items() if not str(k).startswith("diagnostics_")}
+    image_img = sitk.ReadImage(str(image_path))
+    features = {}
+    for extractor in _WORKER_EXTRACTORS:
+        features.update(extractor.execute(image_img, mask_img))
+    clean = {
+        k: v
+        for k, v in features.items()
+        if not str(k).startswith("diagnostics_") and is_allowed_feature(k)
+    }
+    del image_img, mask0, mask_img, features
+    gc.collect()
     return {"uid": uid, "variant": variant, **clean}
 
 
-def extract_features_for_permutations(permutations):
+def recipe_key(recipe: dict) -> tuple[str, str]:
+    return (str(recipe["uid"]), str(recipe["variant"]))
+
+
+def load_partial_checkpoint(path: Path) -> pd.DataFrame:
+    if not path.is_file():
+        return pd.DataFrame(columns=["uid", "variant"])
+
+    partial = pd.read_csv(path)
+    if partial.empty:
+        return pd.DataFrame(columns=["uid", "variant"])
+    if not {"uid", "variant"}.issubset(set(partial.columns)):
+        logging.warning("Checkpoint parcial invalido, no contiene uid/variant: %s", path)
+        return pd.DataFrame(columns=["uid", "variant"])
+    partial["uid"] = partial["uid"].astype(str)
+    partial["variant"] = partial["variant"].astype(str)
+    return partial
+
+
+def persist_partial_checkpoint(path: Path, rows: list[dict], *, base_df: pd.DataFrame | None = None) -> pd.DataFrame:
+    current_df = pd.DataFrame(rows)
+    if base_df is not None and not base_df.empty:
+        current_df = pd.concat([base_df, current_df], ignore_index=True)
+    if not current_df.empty:
+        current_df = current_df.drop_duplicates(subset=["uid", "variant"], keep="last").reset_index(drop=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current_df.to_csv(path, index=False)
+    return current_df
+
+
+def extract_features_for_permutations(permutations, progress_csv: Path | None = None):
     if not permutations:
         raise ValueError("No hay permutaciones para extraer features.")
 
     workers = int(os.environ.get("ICC_WORKERS", str(DEFAULT_WORKERS)))
+    checkpoint_every = max(1, int(os.environ.get("ICC_CHECKPOINT_EVERY", str(CHECKPOINT_EVERY))))
+    progress_path = progress_csv if progress_csv is not None else FEATURES_PROGRESS_CSV
+    partial_df = load_partial_checkpoint(progress_path)
+    completed_keys = set()
+    if not partial_df.empty:
+        completed_keys = set(zip(partial_df["uid"].astype(str), partial_df["variant"].astype(str)))
+        logging.info("Reanudando desde checkpoint parcial: %d extracciones ya completadas", len(completed_keys))
+
+    pending_permutations = [r for r in permutations if recipe_key(r) not in completed_keys]
+    if not pending_permutations:
+        if partial_df.empty:
+            raise ValueError("No hay permutaciones pendientes ni checkpoint utilizable.")
+        return partial_df
 
     if workers <= 1:
         _init_worker(str(PYRADIOMICS_PARAMS))
-        rows = []
-        for r in tqdm(permutations, total=len(permutations), desc="Extrayendo radiomics"):
+        rows = partial_df.to_dict(orient="records") if not partial_df.empty else []
+        since_checkpoint = 0
+        for r in tqdm(pending_permutations, total=len(pending_permutations), desc="Extrayendo radiomics"):
             try:
                 out = _extract_one(r)
             except Exception as e:
@@ -231,27 +311,58 @@ def extract_features_for_permutations(permutations):
                 continue
             if out is not None:
                 rows.append(out)
+                since_checkpoint += 1
+                if since_checkpoint >= checkpoint_every:
+                    partial_df = persist_partial_checkpoint(progress_path, rows)
+                    rows = partial_df.to_dict(orient="records")
+                    since_checkpoint = 0
     else:
-        rows = []
+        rows = partial_df.to_dict(orient="records") if not partial_df.empty else []
+        since_checkpoint = 0
         logging.info("Extraccion radiomics en paralelo con %d workers", workers)
+        max_pending = max(workers, workers * int(os.environ.get("ICC_MAX_PENDING_FACTOR", str(MAX_PENDING_FACTOR))))
         with ProcessPoolExecutor(
             max_workers=workers,
             initializer=_init_worker,
             initargs=(str(PYRADIOMICS_PARAMS),),
         ) as ex:
-            futures = [ex.submit(_extract_one, r) for r in permutations]
-            for fut in tqdm(as_completed(futures), total=len(futures), desc="Extrayendo radiomics (parallel)"):
-                try:
-                    out = fut.result()
-                except Exception as e:
-                    logging.warning("Fallo radiomics (worker): %s", str(e))
-                    continue
-                if out is not None:
-                    rows.append(out)
+            pending = {}
+            recipe_iter = iter(pending_permutations)
+
+            for _ in range(min(max_pending, len(pending_permutations))):
+                recipe = next(recipe_iter, None)
+                if recipe is None:
+                    break
+                pending[ex.submit(_extract_one, recipe)] = recipe
+
+            progress = tqdm(total=len(pending_permutations), desc="Extrayendo radiomics")
+            while pending:
+                for fut in as_completed(tuple(pending)):
+                    recipe = pending.pop(fut)
+                    progress.update(1)
+                    try:
+                        out = fut.result()
+                    except Exception as e:
+                        logging.warning("Fallo radiomics (worker) uid=%s variant=%s: %s", recipe.get("uid"), recipe.get("variant"), str(e))
+                        out = None
+                    if out is not None:
+                        rows.append(out)
+                        since_checkpoint += 1
+                        if since_checkpoint >= checkpoint_every:
+                            partial_df = persist_partial_checkpoint(progress_path, rows)
+                            rows = partial_df.to_dict(orient="records")
+                            since_checkpoint = 0
+
+                    next_recipe = next(recipe_iter, None)
+                    if next_recipe is not None:
+                        pending[ex.submit(_extract_one, next_recipe)] = next_recipe
+                    break
+            progress.close()
 
     if not rows:
         raise ValueError("No se extrajeron features.")
-    return pd.DataFrame(rows)
+    final_df = persist_partial_checkpoint(progress_path, rows)
+    return final_df
 
 
 def compute_icc(features):
@@ -309,10 +420,13 @@ def measure_and_discard_features_by_icc(data):
         logging.info("Cargando features cache: %s", FEATURES_CACHE_CSV)
         features = pd.read_csv(FEATURES_CACHE_CSV)
     else:
-        features = extract_features_for_permutations(permutations)
+        features = extract_features_for_permutations(permutations, progress_csv=FEATURES_PROGRESS_CSV)
         FEATURES_CACHE_CSV.parent.mkdir(parents=True, exist_ok=True)
         features.to_csv(FEATURES_CACHE_CSV, index=False)
         logging.info("Features guardadas en cache: %s", FEATURES_CACHE_CSV)
+        if FEATURES_PROGRESS_CSV.is_file():
+            FEATURES_PROGRESS_CSV.unlink()
+            logging.info("Checkpoint parcial eliminado tras completar cache final: %s", FEATURES_PROGRESS_CSV)
     icc_results = compute_icc(features)
     features_to_discard = identify_features_to_discard(icc_results)
 
