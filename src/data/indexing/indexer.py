@@ -27,7 +27,7 @@ def create_metadata_csv(raw_dir: Path, output_csv: Path) -> None:
     patient_data = []
 
     logging.info("Indexando metadatos de pacientes")
-    for patient_dir in tqdm(patient_dirs, total=len(patient_dirs), desc="Indexando metadatos"):
+    for patient_dir in tqdm(patient_dirs, total=len(patient_dirs), desc="Indexando"):
         patient_id = patient_dir.name
 
         bl_images = list_files(patient_dir / "baseline" / "images")
@@ -77,10 +77,10 @@ def create_metadata_csv(raw_dir: Path, output_csv: Path) -> None:
     df.to_csv(output_csv, index=False)
 
     logging.info("Resumen del dataset:")
-    logging.info(f"Max. baseline images: {max_bl_images}")
-    logging.info(f"Max. baseline masks: {max_bl_masks}")
-    logging.info(f"Max. followup images: {max_fu_images}")
-    logging.info(f"Max. followup masks: {max_fu_masks}")
+    logging.info(f"Max baseline images: {max_bl_images}")
+    logging.info(f"Max baseline masks: {max_bl_masks}")
+    logging.info(f"Max followup images: {max_fu_images}")
+    logging.info(f"Max followup masks: {max_fu_masks}")
 
     print("\nDistribucion baseline images:")
     print(pd.Series([len(patient["bl_images"]) for patient in patient_data]).value_counts().sort_index())

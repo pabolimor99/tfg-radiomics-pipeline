@@ -20,8 +20,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 INPUT_CSV = PROJECT_ROOT / "outputs" / "pairs" / "longitudinal_pairs.csv"
 OUTPUT_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_results.csv"
-FEATURES_KEEP_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_keep.csv"
-FEATURES_DISCARD_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_features_discard.csv"
 FEATURES_CACHE_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_perturbed_features.csv"
 FEATURES_PROGRESS_CSV = PROJECT_ROOT / "outputs" / "features" / "icc_perturbed_features.partial.csv"
 PYRADIOMICS_PARAMS = Path(__file__).resolve().parent / "pyradiomics_ct.yaml"
@@ -37,9 +35,7 @@ _WORKER_EXTRACTORS = None
 
 def is_allowed_feature(key: str) -> bool:
     key = str(key)
-    return key.startswith(("original_", "log-sigma-")) or (
-        key.startswith("wavelet-") and "_firstorder_" in key
-    )
+    return not key.startswith("diagnostics_")
 
 
 def resolve_path(path_str):
@@ -108,23 +104,16 @@ def load_data(input_csv):
     return pd.read_csv(input_csv)
 
 
-def build_extractor(*, wavelet_firstorder: bool = False):
+def build_extractor():
     if Path(PYRADIOMICS_PARAMS).is_file():
         extractor = featureextractor.RadiomicsFeatureExtractor(str(PYRADIOMICS_PARAMS))
     else:
         extractor = featureextractor.RadiomicsFeatureExtractor()
-    if wavelet_firstorder:
-        extractor.disableAllImageTypes()
-        extractor.enableImageTypeByName("Wavelet")
-        extractor.disableAllFeatures()
-        extractor.enableFeatureClassByName("firstorder")
-    else:
-        extractor.enableImageTypeByName("Wavelet", enabled=False)
     return extractor
 
 
 def build_extractors():
-    return (build_extractor(), build_extractor(wavelet_firstorder=True))
+    return (build_extractor(),)
 
 
 def extract_baseline_subset(data):
@@ -135,7 +124,7 @@ def extract_baseline_subset(data):
     rows = rows.sort_values(by=["patient_id", "pair_index", "uid"]).reset_index(drop=True)
     rows = rows.head(int(ICC_SUBSET_SIZE)).reset_index(drop=True)
     logging.info(
-        "Usando subset dinamico de baseline radiomics-valid para ICC: %d sujetos (limite=%d)",
+        "Usando subset para ICC: %d sujetos (limite=%d)",
         int(len(rows)),
         int(ICC_SUBSET_SIZE),
     )
@@ -230,7 +219,7 @@ def _extract_one(recipe: dict):
 
     if mask_is_empty(mask_img):
         return None
-    # Evita casos degenerados (p.ej., 1D) que rompen PyRadiomics
+
     if int(mask_img.GetDimension()) < 2:
         return None
     if any(int(s) < 2 for s in mask_img.GetSize()):
@@ -240,11 +229,7 @@ def _extract_one(recipe: dict):
     features = {}
     for extractor in _WORKER_EXTRACTORS:
         features.update(extractor.execute(image_img, mask_img))
-    clean = {
-        k: v
-        for k, v in features.items()
-        if not str(k).startswith("diagnostics_") and is_allowed_feature(k)
-    }
+    clean = {k: v for k, v in features.items() if is_allowed_feature(k)}
     del image_img, mask0, mask_img, features
     gc.collect()
     return {"uid": uid, "variant": variant, **clean}
@@ -281,8 +266,6 @@ def persist_partial_checkpoint(path: Path, rows: list[dict], *, base_df: pd.Data
 
 
 def extract_features_for_permutations(permutations, progress_csv: Path | None = None):
-    if not permutations:
-        raise ValueError("No hay permutaciones para extraer features.")
 
     workers = int(os.environ.get("ICC_WORKERS", str(DEFAULT_WORKERS)))
     checkpoint_every = max(1, int(os.environ.get("ICC_CHECKPOINT_EVERY", str(CHECKPOINT_EVERY))))
@@ -291,23 +274,21 @@ def extract_features_for_permutations(permutations, progress_csv: Path | None = 
     completed_keys = set()
     if not partial_df.empty:
         completed_keys = set(zip(partial_df["uid"].astype(str), partial_df["variant"].astype(str)))
-        logging.info("Reanudando desde checkpoint parcial: %d extracciones ya completadas", len(completed_keys))
+        logging.info("Reanudando desde checkpoint: %d extracciones ya completadas", len(completed_keys))
 
     pending_permutations = [r for r in permutations if recipe_key(r) not in completed_keys]
     if not pending_permutations:
-        if partial_df.empty:
-            raise ValueError("No hay permutaciones pendientes ni checkpoint utilizable.")
         return partial_df
 
     if workers <= 1:
         _init_worker(str(PYRADIOMICS_PARAMS))
         rows = partial_df.to_dict(orient="records") if not partial_df.empty else []
         since_checkpoint = 0
-        for r in tqdm(pending_permutations, total=len(pending_permutations), desc="Extrayendo radiomics"):
+        for r in tqdm(pending_permutations, total=len(pending_permutations), desc="Extrayendo caracteristicas"):
             try:
                 out = _extract_one(r)
             except Exception as e:
-                logging.warning("Fallo radiomics uid=%s variant=%s: %s", r.get("uid"), r.get("variant"), str(e))
+                logging.warning("Fallo en uid=%s variant=%s: %s", r.get("uid"), r.get("variant"), str(e))
                 continue
             if out is not None:
                 rows.append(out)
@@ -319,7 +300,7 @@ def extract_features_for_permutations(permutations, progress_csv: Path | None = 
     else:
         rows = partial_df.to_dict(orient="records") if not partial_df.empty else []
         since_checkpoint = 0
-        logging.info("Extraccion radiomics en paralelo con %d workers", workers)
+        logging.info("Extraccion con %d workers", workers)
         max_pending = max(workers, workers * int(os.environ.get("ICC_MAX_PENDING_FACTOR", str(MAX_PENDING_FACTOR))))
         with ProcessPoolExecutor(
             max_workers=workers,
@@ -335,7 +316,7 @@ def extract_features_for_permutations(permutations, progress_csv: Path | None = 
                     break
                 pending[ex.submit(_extract_one, recipe)] = recipe
 
-            progress = tqdm(total=len(pending_permutations), desc="Extrayendo radiomics")
+            progress = tqdm(total=len(pending_permutations), desc="Extrayendo caracteristicas", unit="perm")
             while pending:
                 for fut in as_completed(tuple(pending)):
                     recipe = pending.pop(fut)
@@ -343,7 +324,7 @@ def extract_features_for_permutations(permutations, progress_csv: Path | None = 
                     try:
                         out = fut.result()
                     except Exception as e:
-                        logging.warning("Fallo radiomics (worker) uid=%s variant=%s: %s", recipe.get("uid"), recipe.get("variant"), str(e))
+                        logging.warning("Fallo en uid=%s variant=%s: %s", recipe.get("uid"), recipe.get("variant"), str(e))
                         out = None
                     if out is not None:
                         rows.append(out)
@@ -360,7 +341,7 @@ def extract_features_for_permutations(permutations, progress_csv: Path | None = 
             progress.close()
 
     if not rows:
-        raise ValueError("No se extrajeron features.")
+        raise ValueError("No se extrajeron caracteristicas.")
     final_df = persist_partial_checkpoint(progress_path, rows)
     return final_df
 
@@ -369,12 +350,7 @@ def compute_icc(features):
     if not isinstance(features, pd.DataFrame):
         features = pd.DataFrame(features)
 
-    if not {"uid", "variant"}.issubset(set(features.columns)):
-        raise ValueError("features debe contener columnas 'uid' y 'variant'.")
-
     feature_cols = [c for c in features.columns if c not in {"uid", "variant"}]
-    if not feature_cols:
-        raise ValueError("No hay columnas de features para calcular ICC.")
 
     rows = []
     for col in tqdm(feature_cols, total=len(feature_cols), desc="Calculando ICC"):
@@ -393,8 +369,6 @@ def compute_icc(features):
             long_balanced = long_balanced.dropna(subset=["rating"])
             try:
                 icc_tbl = pg.intraclass_corr(data=long_balanced, targets="uid", raters="variant", ratings="rating")
-                # Pingouin usa nomenclatura Shrout & Fleiss / McGraw & Wong:
-                # ICC(A,1) = two-way random, absolute agreement, single measurement (equiv. ICC(2,1))
                 icc_row = icc_tbl.loc[icc_tbl["Type"] == "ICC(A,1)"]
                 icc = float(icc_row["ICC"].iloc[0]) if not icc_row.empty else float("nan")
             except (AssertionError, ValueError):
@@ -426,24 +400,18 @@ def measure_and_discard_features_by_icc(data):
         logging.info("Features guardadas en cache: %s", FEATURES_CACHE_CSV)
         if FEATURES_PROGRESS_CSV.is_file():
             FEATURES_PROGRESS_CSV.unlink()
-            logging.info("Checkpoint parcial eliminado tras completar cache final: %s", FEATURES_PROGRESS_CSV)
+            logging.info("Checkpoint eliminado: %s", FEATURES_PROGRESS_CSV)
     icc_results = compute_icc(features)
     features_to_discard = identify_features_to_discard(icc_results)
 
-    keep = icc_results[~icc_results["feature"].isin(features_to_discard)].copy()
-    discard = icc_results[icc_results["feature"].isin(features_to_discard)].copy()
-
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    FEATURES_KEEP_CSV.parent.mkdir(parents=True, exist_ok=True)
-    FEATURES_DISCARD_CSV.parent.mkdir(parents=True, exist_ok=True)
-    keep.to_csv(FEATURES_KEEP_CSV, index=False)
-    discard.to_csv(FEATURES_DISCARD_CSV, index=False)
+    icc_results.to_csv(OUTPUT_CSV, index=False)
 
     logging.info(
         "ICC terminado: total_features=%d keep=%d discard=%d (umbral=%.2f)",
         int(len(icc_results)),
-        int(len(keep)),
-        int(len(discard)),
+        int((~icc_results["feature"].isin(features_to_discard)).sum()),
+        int(icc_results["feature"].isin(features_to_discard).sum()),
         float(ICC_THRESHOLD),
     )
 

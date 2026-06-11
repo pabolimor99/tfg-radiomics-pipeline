@@ -56,7 +56,7 @@ def organize_files(raw_dir: Path)-> None:
 
         pacientes += 1
     
-    logging.info("Organización completada: se han organizado %d pacientes", pacientes)
+    logging.info("Organización completada: se han procesado %d pacientes", pacientes)
             
 if __name__ == '__main__':
     raw_dir = Path('data/raw')

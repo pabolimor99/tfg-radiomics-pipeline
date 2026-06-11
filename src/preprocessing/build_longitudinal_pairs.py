@@ -5,8 +5,8 @@ import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-INPUT_CSV = Path("data/validated_index.csv")
-LONGITUDINAL_PAIRS_CSV = Path("data/longitudinal_pairs.csv")
+INPUT_CSV = Path("outputs/indexing/validated_index.csv")
+LONGITUDINAL_PAIRS_CSV = Path("outputs/pairs/longitudinal_pairs.csv")
 
 REQUIRE_RADIOMICS_VALID = True
 
@@ -33,8 +33,6 @@ def _select_longitudinal_rows(df: pd.DataFrame) -> pd.DataFrame:
     else:
         baseline = baseline[baseline["is_structurally_valid"] == True].copy()
 
-    # Conserva followups estructuralmente correctos aunque no sean radiomics-valid
-    # para mantener el universo longitudinal cuando la mascara del FU es vacia.
     followup = followup[followup["is_structurally_valid"] == True].copy()
 
     valid_pairs = baseline[["patient_id", "pair_index"]].drop_duplicates()
@@ -98,8 +96,8 @@ def build_longitudinal_pairs(input_csv: Path, output_csv: Path) -> None:
     result_df.to_csv(output_csv, index=False)
 
     logging.info("Longitudinal pairs guardado en %s", output_csv)
-    logging.info("Numero de filas en formato long: %d", len(result_df))
-    logging.info("Numero de pares longitudinales: %d", int(result_df["pair_uid"].nunique()))
+    logging.info("Numero de filas: %d", len(result_df))
+    logging.info("Numero de pares: %d", int(result_df["pair_uid"].nunique()))
 
 
 if __name__ == "__main__":

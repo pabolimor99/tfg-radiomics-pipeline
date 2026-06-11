@@ -1,9 +1,12 @@
-numpy
-pandas
-scipy
-joblib
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.13.1
+joblib==1.4.2
 scikit-learn==1.5.2
-pyradiomics
+lightgbm
+xgboost
+optuna
+pyradiomics==3.0.1
 SimpleITK
 tqdm
 pingouin

@@ -6,17 +6,21 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .ipynb_checkpoints/
+**/__pycache__/
 
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
 
-# Dataset original y reorganizado
 data/base/
 data/raw/
 data/test/
 
-# Artefactos pesados generados
 outputs/models/
 outputs-base/models/
+outputs/logs/
+checkpoints/
+*.ckpt
+*.partial.csv
+figures/

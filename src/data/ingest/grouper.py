@@ -43,7 +43,7 @@ def reorganize_dataset(base_dir: Path, raw_dir: Path) -> None:
             shutil.copy2(file_path, dst)
             copied_files += 1
 
-    logging.info("Reorganización completada: %d archivos copiados", copied_files)
+    logging.info("Reorganizacion completada: %d archivos copiados", copied_files)
 
 if __name__ == "__main__":
     inputs_dir = Path("data/test/inputsTr")

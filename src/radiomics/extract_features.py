@@ -8,6 +8,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+from pandas.errors import EmptyDataError, ParserError
 from radiomics import featureextractor
 import SimpleITK as sitk
 from tqdm import tqdm
@@ -34,9 +35,7 @@ _WORKER_EXTRACTORS = None
 
 def is_allowed_feature(key: str) -> bool:
     key = str(key)
-    return key.startswith(("original_", "log-sigma-")) or (
-        key.startswith("wavelet-") and "_firstorder_" in key
-    )
+    return not key.startswith("diagnostics_")
 
 
 def resolve_path(path_str: str) -> Path | None:
@@ -50,22 +49,15 @@ def resolve_path(path_str: str) -> Path | None:
     return (PROJECT_ROOT / path).resolve()
 
 
-def build_extractor(*, wavelet_firstorder: bool = False):
+def build_extractor():
     if not PYRADIOMICS_PARAMS.is_file():
         raise FileNotFoundError(f"No se encontro el fichero de parametros de PyRadiomics: {PYRADIOMICS_PARAMS}")
     extractor = featureextractor.RadiomicsFeatureExtractor(str(PYRADIOMICS_PARAMS))
-    if wavelet_firstorder:
-        extractor.disableAllImageTypes()
-        extractor.enableImageTypeByName("Wavelet")
-        extractor.disableAllFeatures()
-        extractor.enableFeatureClassByName("firstorder")
-    else:
-        extractor.enableImageTypeByName("Wavelet", enabled=False)
     return extractor
 
 
 def build_extractors():
-    return (build_extractor(), build_extractor(wavelet_firstorder=True))
+    return (build_extractor(),)
 
 
 def clean_result(result: dict) -> dict:
@@ -174,11 +166,15 @@ def load_partial_csv(path: Path, key_columns: tuple[str, ...]) -> pd.DataFrame:
     if not path.is_file():
         return pd.DataFrame(columns=list(key_columns))
 
-    partial = pd.read_csv(path)
+    try:
+        partial = pd.read_csv(path)
+    except (EmptyDataError, ParserError):
+        logging.warning("Checkpoint parcial corrupto")
+        return pd.DataFrame(columns=list(key_columns))
     if partial.empty:
         return pd.DataFrame(columns=list(key_columns))
     if not set(key_columns).issubset(set(partial.columns)):
-        logging.warning("Checkpoint parcial invalido, faltan columnas %s en %s", key_columns, path)
+        logging.warning("Checkpoint parcial invalido")
         return pd.DataFrame(columns=list(key_columns))
     for col in key_columns:
         partial[col] = partial[col].astype(str)
@@ -187,13 +183,17 @@ def load_partial_csv(path: Path, key_columns: tuple[str, ...]) -> pd.DataFrame:
 
 def persist_partial_csv(path: Path, rows: list[dict], key_columns: tuple[str, ...]) -> pd.DataFrame:
     current_df = pd.DataFrame(rows)
-    if not current_df.empty:
+    if current_df.empty:
+        current_df = pd.DataFrame(columns=list(key_columns))
+    else:
         current_df = current_df.copy()
         for col in key_columns:
             current_df[col] = current_df[col].astype(str)
         current_df = current_df.drop_duplicates(subset=list(key_columns), keep="last").reset_index(drop=True)
     path.parent.mkdir(parents=True, exist_ok=True)
-    current_df.to_csv(path, index=False)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    current_df.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, path)
     return current_df
 
 
@@ -204,10 +204,6 @@ def extract_features(
     workers: int = DEFAULT_WORKERS,
 ) -> None:
     logging.info("Input CSV: %s", input_csv)
-
-    if not input_csv.is_file():
-        logging.error("Input CSV file not found: %s", input_csv)
-        return
 
     df = pd.read_csv(input_csv)
 
@@ -222,7 +218,7 @@ def extract_features(
     }
     missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"Faltan columnas obligatorias: {missing}")
+        raise ValueError(f"Faltan columnas: {missing}")
 
     partial_rows_df = load_partial_csv(PROGRESS_CSV, ("pair_uid", "timepoint"))
     partial_errors_df = load_partial_csv(ERRORS_PROGRESS_CSV, ("pair_uid", "timepoint"))
@@ -230,7 +226,7 @@ def extract_features(
     completed_error_keys = set(zip(partial_errors_df["pair_uid"], partial_errors_df["timepoint"])) if not partial_errors_df.empty else set()
     completed_keys = completed_row_keys | completed_error_keys
     if completed_keys:
-        logging.info("Reanudando desde checkpoints: %d filas ya resueltas", len(completed_keys))
+        logging.info("Reanudando desde checkpoint: %d filas ya resueltas", len(completed_keys))
 
     records = df.to_dict(orient="records")
     pending_records = [r for r in records if row_key(r) not in completed_keys]
@@ -239,14 +235,12 @@ def extract_features(
     since_checkpoint = 0
 
     total = len(df)
-    logging.info("Extrayendo caracteristicas longitudinales en formato long para %d filas", total)
-    if not pending_records:
-        logging.info("No quedan filas pendientes; consolidando salidas desde checkpoints.")
+    logging.info("Extrayendo caracteristicas para %d filas", total)
 
     workers = int(workers) if workers is not None else 0
     if workers <= 1:
         extractors = build_extractors()
-        for row in tqdm(pending_records, total=len(pending_records), desc="Extrayendo features longitudinales"):
+        for row in tqdm(pending_records, total=len(pending_records), desc="Extrayendo características"):
             out_row, err_row = _extract_for_row(row=row, extractors=extractors)
             if out_row is not None:
                 rows.append(out_row)
@@ -259,7 +253,7 @@ def extract_features(
                 errors = persist_partial_csv(ERRORS_PROGRESS_CSV, errors, ("pair_uid", "timepoint")).to_dict(orient="records")
                 since_checkpoint = 0
     else:
-        logging.info("Procesando en paralelo con %d workers", workers)
+        logging.info("Procesando con %d workers", workers)
         max_pending = max(workers, workers * int(os.environ.get("RADIOMICS_MAX_PENDING_FACTOR", str(MAX_PENDING_FACTOR))))
         with ProcessPoolExecutor(
             max_workers=workers,
@@ -275,7 +269,7 @@ def extract_features(
                     break
                 pending[ex.submit(_process_row_worker, record)] = record
 
-            progress = tqdm(total=len(pending_records), desc="Extrayendo features longitudinales (parallel)")
+            progress = tqdm(total=len(pending_records), desc="Extrayendo características")
             while pending:
                 for fut in as_completed(tuple(pending)):
                     record = pending.pop(fut)
@@ -324,7 +318,7 @@ def extract_features(
         logging.info("Total de filas procesadas correctamente: %d", len(rows))
         logging.info("Numero de columnas: %d", len(features_df.columns))
     else:
-        logging.warning("No se extrajeron caracteristicas de ninguna fila longitudinal")
+        logging.warning("No se extrajeron caracteristicas de ninguna fila")
 
     if errors:
         errors_df = pd.DataFrame(errors)
