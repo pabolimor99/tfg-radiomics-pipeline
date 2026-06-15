@@ -3,7 +3,7 @@ import csv
 import slicer
 import qt
 
-PROJECT_ROOT = r"C:\Users\PabolimorWS\Desktop\TFG"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CSV_PATH = os.path.join(PROJECT_ROOT, "outputs", "pairs", "longitudinal_pairs.csv")
 
 OUTCOME_CSV = os.path.join(PROJECT_ROOT, "outputs", "review", "classification_outcomes.csv")
